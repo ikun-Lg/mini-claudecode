@@ -1,10 +1,10 @@
 // 大模型请求模块：封装与 OpenAI 接口的通信
-import fs from 'fs';
-import path from 'path';
-import OpenAI from 'openai';
-import { getUserHomeDir, getCurrentWorkingDir } from '../utils/pathUtils.js';
+import fs from "fs";
+import path from "path";
+import OpenAI from "openai";
+import { getUserHomeDir, getCurrentWorkingDir } from "../utils/pathUtils.js";
 
-const SETTINGS_FILENAME = '.mincode/settings.json';
+const SETTINGS_FILENAME = ".minicode/settings.json";
 
 /**
  * 从指定目录读取 .mincode/settings.json 配置文件
@@ -14,7 +14,7 @@ const SETTINGS_FILENAME = '.mincode/settings.json';
 function readSettings(dir) {
   const filePath = path.join(dir, SETTINGS_FILENAME);
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = fs.readFileSync(filePath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -36,13 +36,13 @@ function loadSettings() {
 const settings = loadSettings();
 
 // 默认使用的模型
-export const DEFAULT_MODEL = settings.model || 'gpt-4o-mini';
+export const DEFAULT_MODEL = settings.model || "gpt-4o-mini";
 
 // 系统提示词，定义助手的人设
 const SYSTEM_PROMPT =
-  '你是 mini-claudecode，一个运行在终端中的智能编程助手。' +
-  '你可以帮助用户解答编程问题、分析代码、提供建议。' +
-  '请用简洁清晰的中文进行回答。';
+  "你是 mini-claudecode，一个运行在终端中的智能编程助手。" +
+  "你可以帮助用户解答编程问题、分析代码、提供建议。" +
+  "请用简洁清晰的中文进行回答。";
 
 /**
  * 创建 OpenAI 客户端实例
@@ -65,7 +65,7 @@ export function createClient() {
 export async function* chatWithLLM(messages) {
   // 构造发送给大模型的消息列表（在开头插入系统提示）
   const apiMessages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: "system", content: SYSTEM_PROMPT },
     ...messages.map((msg) => ({ role: msg.role, content: msg.content })),
   ];
 
@@ -75,9 +75,9 @@ export async function* chatWithLLM(messages) {
       model: DEFAULT_MODEL,
       messages: apiMessages,
       // 启用深度思考模式
-    //   thinking: { type: 'enabled' },
+      //   thinking: { type: 'enabled' },
       // 推理努力程度
-    //   reasoning_effort: 'high',
+      //   reasoning_effort: 'high',
       // 流式输出
       stream: true,
     });
