@@ -36,7 +36,7 @@ function loadSettings() {
 const settings = loadSettings();
 
 // 默认使用的模型
-const DEFAULT_MODEL = settings.model || 'gpt-4o-mini';
+export const DEFAULT_MODEL = settings.model || 'gpt-4o-mini';
 
 // 系统提示词，定义助手的人设
 const SYSTEM_PROMPT =

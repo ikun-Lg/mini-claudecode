@@ -4,7 +4,11 @@ import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import Banner from './Banner.jsx';
 import MessageBubble from './MessageBubble.jsx';
-import { chatWithLLM } from '../request/llm.js';
+import StatusBar from './StatusBar.jsx';
+import { COLORS, GLYPHS } from './theme.js';
+import { chatWithLLM, DEFAULT_MODEL } from '../request/llm.js';
+
+const CURRENT_MODEL = DEFAULT_MODEL;
 
 // 消息自增 ID
 let messageId = 0;
@@ -93,7 +97,7 @@ export default function App() {
 
   return (
     <Box flexDirection="column">
-      <Banner />
+      <Banner model={CURRENT_MODEL} />
 
       {/* 对话消息列表 */}
       {messages.map((message) => (
@@ -102,25 +106,43 @@ export default function App() {
 
       {/* 思考中或输入框 */}
       {isThinking ? (
-        <Box marginBottom={1}>
-          <Text color="cyan">
-            <Spinner type="dots" />
-          </Text>
-          <Text color="gray">{' assistant 正在思考...'}</Text>
+        <Box marginTop={1} flexDirection="column">
+          <Box>
+            <Text color={COLORS.assistantAccent} bold>
+              {`${GLYPHS.assistant} `}
+            </Text>
+            <Text color={COLORS.accentPrimary}>
+              <Spinner type="dots" />
+            </Text>
+            <Text color={COLORS.textMuted}>
+              {` assistant 正在思考`}
+            </Text>
+            <Text color={COLORS.textDim}>
+              {' · '}
+              <Spinner type="dots" />
+            </Text>
+          </Box>
         </Box>
       ) : (
-        <Box>
-          <Text color="cyan" bold>
-            {'❯ '}
+        <Box marginTop={1}>
+          <Text color={COLORS.accentPrimary} bold>
+            {`${GLYPHS.arrow} `}
           </Text>
           <TextInput
             value={input}
             onChange={setInput}
             onSubmit={handleSubmit}
-            placeholder="输入消息..."
+            placeholder="输入消息，按 Enter 发送..."
           />
         </Box>
       )}
+
+      {/* 底部状态栏 */}
+      <StatusBar
+        model={CURRENT_MODEL}
+        messageCount={messages.length}
+        isThinking={isThinking}
+      />
     </Box>
   );
 }
