@@ -7,6 +7,7 @@ import MessageBubble from './MessageBubble.jsx';
 import StatusBar from './StatusBar.jsx';
 import { COLORS, GLYPHS } from './theme.js';
 import { chatWithLLM, DEFAULT_MODEL } from '../request/llm.js';
+import { cacheMessages } from '../utils/fsHandle.js';
 
 const CURRENT_MODEL = DEFAULT_MODEL;
 
@@ -21,6 +22,9 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+
+  // 每次渲染时将最新消息缓存到模块级变量，供 app.js 退出时使用
+  cacheMessages(messages);
 
   const handleSubmit = useCallback(
     async (value) => {
