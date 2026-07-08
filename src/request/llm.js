@@ -2,11 +2,16 @@
 import 'dotenv/config';
 import OpenAI from 'openai';
 
-// 初始化 OpenAI 客户端
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL || undefined,
-});
+/**
+ * 创建 OpenAI 客户端实例
+ * @returns {OpenAI} OpenAI 客户端实例
+ */
+export function createClient() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_BASE_URL || undefined,
+  });
+}
 
 // 默认使用的模型
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -30,6 +35,7 @@ export async function* chatWithLLM(messages) {
   ];
 
   try {
+    const client = createClient();
     const stream = await client.chat.completions.create({
       model: DEFAULT_MODEL,
       messages: apiMessages,
