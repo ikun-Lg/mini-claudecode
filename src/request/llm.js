@@ -1,26 +1,61 @@
 // 大模型请求模块：封装与 OpenAI 接口的通信
-import 'dotenv/config';
+import fs from 'fs';
+import path from 'path';
 import OpenAI from 'openai';
+import { getUserHomeDir, getCurrentWorkingDir } from '../utils/pathUtils.js';
+
+const SETTINGS_FILENAME = '.mincode/settings.json';
 
 /**
- * 创建 OpenAI 客户端实例
- * @returns {OpenAI} OpenAI 客户端实例
+ * 从指定目录读取 .mincode/settings.json 配置文件
+ * @param {string} dir - 基准目录
+ * @returns {Object} 解析后的配置对象，读取失败则返回空对象
  */
-export function createClient() {
-  return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: process.env.OPENAI_BASE_URL || undefined,
-  });
+function readSettings(dir) {
+  const filePath = path.join(dir, SETTINGS_FILENAME);
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return {};
+  }
 }
 
+/**
+ * 加载合并后的配置
+ * 优先级：当前终端目录 > 用户 home 目录
+ * @returns {Object} 合并后的配置对象
+ */
+function loadSettings() {
+  const homeSettings = readSettings(getUserHomeDir());
+  const localSettings = readSettings(getCurrentWorkingDir());
+  return { ...homeSettings, ...localSettings };
+}
+
+// 合并后的配置（模块加载时读取一次）
+const settings = loadSettings();
+
 // 默认使用的模型
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_MODEL = settings.model || 'gpt-4o-mini';
 
 // 系统提示词，定义助手的人设
 const SYSTEM_PROMPT =
   '你是 mini-claudecode，一个运行在终端中的智能编程助手。' +
   '你可以帮助用户解答编程问题、分析代码、提供建议。' +
   '请用简洁清晰的中文进行回答。';
+
+/**
+ * 创建 OpenAI 客户端实例
+ * 配置来源：当前终端目录下的 .mincode/settings.json（优先）
+ *          或用户 home 目录下的 .mincode/settings.json
+ * @returns {OpenAI} OpenAI 客户端实例
+ */
+export function createClient() {
+  return new OpenAI({
+    apiKey: settings.apiKey,
+    baseURL: settings.baseURL || undefined,
+  });
+}
 
 /**
  * 流式调用大模型进行对话
