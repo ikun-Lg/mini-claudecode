@@ -4,20 +4,10 @@ import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
 import Banner from './Banner.jsx';
 import MessageBubble from './MessageBubble.jsx';
+import { chatWithLLM } from '../request/llm.js';
 
 // 消息自增 ID
 let messageId = 0;
-
-/**
- * 生成占位回复（后续替换为真实的大模型接口调用）
- */
-function generatePlaceholderResponse(userInput) {
-  return (
-    `收到你的消息："${userInput}"\n\n` +
-    '这是 mini-claudecode 的占位回复，大模型接口尚未对接。\n' +
-    '后续将在此处接入 LLM 服务，实现真正的智能对话。'
-  );
-}
 
 /**
  * 主对话应用组件
@@ -57,20 +47,48 @@ export default function App() {
       setInput('');
       setIsThinking(true);
 
-      // 模拟回复延迟
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      // 构造对话历史（包含本次用户提问），发送给大模型
+      const conversationMessages = [
+        ...messages,
+        { role: 'user', content: trimmed },
+      ];
 
-      // 生成并添加助手回复
-      const response = generatePlaceholderResponse(trimmed);
-      const assistantMsg = {
-        id: ++messageId,
-        role: 'assistant',
-        content: response,
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      // 流式接收大模型回复，逐块更新助手消息内容
+      const assistantId = ++messageId;
+      let fullContent = '';
+      let isFirstChunk = true;
+
+      for await (const chunk of chatWithLLM(conversationMessages)) {
+        fullContent += chunk;
+        if (isFirstChunk) {
+          // 首个片段到达：创建助手消息并关闭思考状态
+          isFirstChunk = false;
+          setIsThinking(false);
+          setMessages((prev) => [
+            ...prev,
+            { id: assistantId, role: 'assistant', content: fullContent },
+          ]);
+        } else {
+          // 后续片段：追加更新助手消息内容
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantId ? { ...msg, content: fullContent } : msg,
+            ),
+          );
+        }
+      }
+
+      // 如果没有收到任何片段，补充一条提示
+      if (isFirstChunk) {
+        setMessages((prev) => [
+          ...prev,
+          { id: assistantId, role: 'assistant', content: '（大模型未返回有效内容）' },
+        ]);
+      }
+
       setIsThinking(false);
     },
-    [exit],
+    [exit, messages],
   );
 
   return (
