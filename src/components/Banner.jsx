@@ -71,6 +71,26 @@ export default function Banner({ model }) {
           {`  ${GLYPHS.diamond} /clear `}
           <Text color={COLORS.textMuted}>清空历史</Text>
         </Text>
+        <Text color={COLORS.textHint}>
+          {`  ${GLYPHS.diamond} /help  `}
+          <Text color={COLORS.textMuted}>显示帮助</Text>
+        </Text>
+        <Text color={COLORS.textHint}>
+          {`  ${GLYPHS.diamond} /model `}
+          <Text color={COLORS.textMuted}>查看模型</Text>
+        </Text>
+        <Text color={COLORS.textHint}>
+          {`  ${GLYPHS.diamond} /context`}
+          <Text color={COLORS.textMuted}> 显示上下文摘要</Text>
+        </Text>
+        <Text color={COLORS.textHint}>
+          {`  ${GLYPHS.diamond} /history`}
+          <Text color={COLORS.textMuted}> 查看并切换历史对话</Text>
+        </Text>
+        <Text color={COLORS.textHint}>
+          {`  ${GLYPHS.diamond} @文件   `}
+          <Text color={COLORS.textMuted}>引用文件作为上下文</Text>
+        </Text>
       </Box>
     </Box>
   );
