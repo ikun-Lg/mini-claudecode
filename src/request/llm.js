@@ -1,4 +1,4 @@
-// 大模型请求模块：封装与 OpenAI 接口的通信
+// 大模型请求模块：封装与 OpenAI 接口的通信，支持工具调用循环
 import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
@@ -9,6 +9,8 @@ import {
   readRules,
   getSkillHeaders,
 } from "../utils/contextRead.js";
+import { excuteTool, getTools } from "../tools/index.js";
+import { transformToOpenAi } from "../tools/util.js";
 
 const SETTINGS_FILENAME = ".minicode/settings.json";
 
@@ -67,54 +69,147 @@ export function createClient() {
 }
 
 /**
- * 流式调用大模型进行对话
+ * 构建发送给大模型的消息列表
+ * 在对话历史前插入 system prompt、用户上下文、skill 头部信息
+ * 同时正确处理 tool 角色消息和带 tool_calls 的 assistant 消息
  *
- * 发送给大模型的消息结构（不影响对话历史记录）：
- *   [0] system     — 系统提示词（readSystemContext，启动时读取一次）
- *   [1] user       — 用户上下文（getUserContext，启动时读取一次）
- *   [2] user       — skill 头部信息（getSkillHeaders，启动时读取一次）
- *   [3..] 对话历史  — 用户实际的 user/assistant 消息
- *
- * system 和 user 上下文消息仅存在于本次请求的 apiMessages 中，
- * 不会被保存到 App.jsx 的 messages state，因此不会写入对话历史
- *
- * @param {Array<{role: 'user' | 'assistant', content: string}>} messages - 对话历史
- * @yields {string} 大模型返回的文本片段
+ * @param {Array} messages - 对话历史（可能包含 tool 消息和 tool_calls）
+ * @returns {Array} 发送给大模型的完整消息列表
  */
-export async function* chatWithLLM(messages) {
-  // 构造发送给大模型的消息列表
-  const apiMessages = [
+function buildApiMessages(messages) {
+  return [
     { role: "system", content: SYSTEM_PROMPT },
-    // 用户上下文（agent.md），仅在有内容时插入
     ...(USER_CONTEXT ? [{ role: "user", content: USER_CONTEXT }] : []),
-    // skill 头部信息，仅在有内容时插入
     ...(SKILL_HEADERS ? [{ role: "user", content: SKILL_HEADERS }] : []),
-    ...messages.map((msg) => ({ role: msg.role, content: msg.content })),
+    ...messages.map((msg) => {
+      // tool 角色的消息需要带上 tool_call_id
+      if (msg.role === "tool") {
+        return {
+          role: "tool",
+          content: msg.content,
+          tool_call_id: msg.tool_call_id,
+        };
+      }
+      // assistant 消息可能带 tool_calls
+      if (msg.role === "assistant" && msg.tool_calls) {
+        return {
+          role: "assistant",
+          content: msg.content || "",
+          tool_calls: msg.tool_calls,
+        };
+      }
+      return { role: msg.role, content: msg.content };
+    }),
   ];
+}
 
+/**
+ * 流式调用大模型，支持工具调用循环（递归）
+ *
+ * 流程：
+ *   1. 流式发送 messages 给大模型，逐块 yield 文本内容
+ *   2. 同时累积 tool_calls deltas
+ *   3. 流结束后，将 assistant 消息 push 到 messages（利用引用类型特性）
+ *   4. 如果有 tool_calls，依次执行工具，push 工具结果到 messages
+ *   5. 递归调用自身，让大模型基于工具结果继续回复
+ *   6. 没有工具调用时，循环结束
+ *
+ * @param {Array} messages - 对话历史（可变数组，函数会向其中 push 消息）
+ * @yields {{type: 'text', content: string} | {type: 'tool_start', name: string} | {type: 'tool_end', name: string, result: string}}
+ */
+export async function* getAIResponse(messages) {
   try {
+    // 获取当前已加载的工具列表（本地工具立即可用，MCP工具后台异步加载）
+    const tools = getTools();
+
+    const apiMessages = buildApiMessages(messages);
     const client = createClient();
+
     const stream = await client.chat.completions.create({
       model: DEFAULT_MODEL,
       messages: apiMessages,
-      // 启用深度思考模式
-      //   thinking: { type: 'enabled' },
-      // 推理努力程度
-      //   reasoning_effort: 'high',
-      // 流式输出
+      temperature: 0.7,
+      tools: transformToOpenAi(tools),
       stream: true,
     });
 
-    // 逐块读取流式响应
+    let fullContent = "";
+    // 工具调用 deltas 可能分多个 chunk 到达，需要按 index 累积
+    let toolCalls = [];
+
     for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) {
-        yield delta;
+      const delta = chunk.choices[0]?.delta;
+      if (!delta) continue;
+
+      // 处理文本内容
+      if (delta.content) {
+        fullContent += delta.content;
+        yield { type: "text", content: delta.content };
+      }
+
+      // 累积工具调用 deltas
+      if (delta.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index;
+          if (!toolCalls[idx]) {
+            toolCalls[idx] = {
+              id: tc.id,
+              type: "function",
+              function: { name: "", arguments: "" },
+            };
+          }
+          if (tc.function?.name) {
+            toolCalls[idx].function.name += tc.function.name;
+          }
+          if (tc.function?.arguments) {
+            toolCalls[idx].function.arguments += tc.function.arguments;
+          }
+        }
       }
     }
+
+    // 过滤掉无效的工具调用（没有 id 的）
+    toolCalls = toolCalls.filter((tc) => tc && tc.id);
+
+    // 将 assistant 消息推入 messages（利用引用类型特性，外部也能看到）
+    const aiMessage = {
+      role: "assistant",
+      content: fullContent,
+    };
+    if (toolCalls.length > 0) {
+      aiMessage.tool_calls = toolCalls;
+    }
+    messages.push(aiMessage);
+
+    // 如果有工具调用，执行并递归
+    if (toolCalls.length > 0) {
+      for (const toolCall of toolCalls) {
+        const functionName = toolCall.function.name;
+        let functionArgs = {};
+        try {
+          functionArgs = JSON.parse(toolCall.function.arguments || "{}");
+        } catch {
+          // JSON 解析失败时用空对象
+        }
+
+        yield { type: "tool_start", name: functionName, args: functionArgs };
+
+        const excuteResult = await excuteTool(functionName, functionArgs);
+
+        messages.push({
+          tool_call_id: toolCall.id,
+          role: "tool",
+          content: excuteResult,
+        });
+
+        yield { type: "tool_end", name: functionName, result: excuteResult };
+      }
+
+      // 递归调用，让大模型基于工具结果继续回复
+      yield* getAIResponse(messages);
+    }
   } catch (error) {
-    // 捕获并包装错误，返回友好的提示信息
     const errMsg = error?.message || String(error);
-    yield `请求大模型失败：${errMsg}`;
+    yield { type: "text", content: `\n请求大模型失败：${errMsg}` };
   }
 }
