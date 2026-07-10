@@ -310,3 +310,117 @@ export function matchRules(rulesMap, filePaths) {
     matchedRuleNames,
   };
 }
+
+/**
+ * 递归扫描指定 skills 目录下的所有 SKILL.md 文件
+ *
+ * @param {string} skillsDir - skills 根目录的绝对路径
+ * @returns {string[]} 所有找到的 SKILL.md 文件的绝对路径数组
+ */
+function scanSkillFiles(skillsDir) {
+  const results = [];
+
+  let entries;
+  try {
+    entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+  } catch {
+    // 目录不存在或不可读，返回空数组
+    return results;
+  }
+
+  for (const entry of entries) {
+    const fullPath = path.join(skillsDir, entry.name);
+    if (entry.isDirectory()) {
+      // 递归搜索子目录
+      results.push(...scanSkillFiles(fullPath));
+    } else if (entry.isFile() && entry.name === "SKILL.md") {
+      results.push(fullPath);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * 从 SKILL.md 文件内容中提取 YAML frontmatter 头部
+ *
+ * frontmatter 格式：
+ *   ---
+ *   name: xxx
+ *   description: xxx
+ *   ---
+ *
+ * 提取两个 --- 之间的内容（不含 --- 本身）
+ *
+ * @param {string} raw - SKILL.md 文件的原始内容
+ * @returns {string|null} frontmatter 头部字符串，没有则返回 null
+ */
+function extractFrontmatter(raw) {
+  const match = raw.match(/^---\n([\s\S]*?)\n---/);
+  return match ? match[1] : null;
+}
+
+/**
+ * 读取所有 SKILL.md 的 frontmatter，拼接到 skillTemplate.md 模板中
+ *
+ * 扫描两个位置的 skills 目录：
+ *   1. 用户 home 目录：~/.minicode/skills/
+ *   2. 当前项目目录：  .minicode/skills/
+ *
+ * 对每个 SKILL.md 文件，提取其 YAML frontmatter（--- 和 --- 之间的内容），
+ * 将所有 frontmatter 拼接成一个字符串，替换 skillTemplate.md 中的
+ * ${skillContent} 变量后返回。
+ *
+ * 如果没有任何 SKILL.md 文件或模板读取失败，返回空字符串
+ *
+ * @returns {string} 替换后的 skill 上下文字符串
+ */
+export function getSkillHeaders() {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const templatePath = path.join(__dirname, "..", "docs", "skillTemplate.md");
+
+  // 读取模板
+  let template;
+  try {
+    template = fs.readFileSync(templatePath, "utf-8");
+  } catch {
+    return "";
+  }
+
+  // 扫描用户级和项目级 skills 目录
+  const userSkillsDir = path.join(getUserHomeDir(), ".minicode", "skills");
+  const projectSkillsDir = path.join(
+    getCurrentWorkingDir(),
+    ".minicode",
+    "skills",
+  );
+
+  const userSkillFiles = scanSkillFiles(userSkillsDir);
+  const projectSkillFiles = scanSkillFiles(projectSkillsDir);
+
+  // 合并去重（同一文件路径只取一次）
+  const allSkillFiles = [...new Set([...userSkillFiles, ...projectSkillFiles])];
+
+  // 提取每个 SKILL.md 的 frontmatter 和文件路径并拼接
+  const headers = [];
+  for (const skillFile of allSkillFiles) {
+    try {
+      const raw = fs.readFileSync(skillFile, "utf-8");
+      const frontmatter = extractFrontmatter(raw);
+      if (frontmatter) {
+        // 从 frontmatter 中提取 name 字段
+        const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+        const skillName = nameMatch ? nameMatch[1].trim() : "unknown";
+        headers.push(`${frontmatter}\n${skillName}的SKILL.md路径: ${skillFile}`);
+      }
+    } catch {
+      // 读取失败，跳过该文件
+    }
+  }
+
+  const skillContent = headers.join("\n\n");
+
+  // 替换模板变量
+  return template.replace(/\$\{skillcontent\}/g, skillContent);
+}
