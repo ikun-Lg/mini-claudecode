@@ -3,7 +3,11 @@ import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
 import { getUserHomeDir, getCurrentWorkingDir } from "../utils/pathUtils.js";
-import { readSystemContext, getUserContext } from "../utils/contextRead.js";
+import {
+  readSystemContext,
+  getUserContext,
+  readRules,
+} from "../utils/contextRead.js";
 
 const SETTINGS_FILENAME = ".minicode/settings.json";
 
@@ -43,6 +47,9 @@ export const DEFAULT_MODEL = settings.model || "gpt-4o-mini";
 // system 消息和 user 上下文消息仅发送给大模型，不写入对话历史记录
 const SYSTEM_PROMPT = readSystemContext();
 const USER_CONTEXT = getUserContext();
+
+// 规则映射表（启动时加载一次，供 App.jsx 匹配文件引用时使用）
+export const RULES_MAP = readRules();
 
 /**
  * 创建 OpenAI 客户端实例
