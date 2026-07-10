@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
 import { getUserHomeDir, getCurrentWorkingDir } from "../utils/pathUtils.js";
+import { readSystemContext, getUserContext } from "../utils/contextRead.js";
 
 const SETTINGS_FILENAME = ".minicode/settings.json";
 
@@ -38,11 +39,10 @@ const settings = loadSettings();
 // 默认使用的模型
 export const DEFAULT_MODEL = settings.model || "gpt-4o-mini";
 
-// 系统提示词，定义助手的人设
-const SYSTEM_PROMPT =
-  "你是 mini-claudecode，一个运行在终端中的智能编程助手。" +
-  "你可以帮助用户解答编程问题、分析代码、提供建议。" +
-  "请用简洁清晰的中文进行回答。";
+// ── 上下文预加载（项目启动时执行一次） ──────────────────
+// system 消息和 user 上下文消息仅发送给大模型，不写入对话历史记录
+const SYSTEM_PROMPT = readSystemContext();
+const USER_CONTEXT = getUserContext();
 
 /**
  * 创建 OpenAI 客户端实例
@@ -59,13 +59,24 @@ export function createClient() {
 
 /**
  * 流式调用大模型进行对话
+ *
+ * 发送给大模型的消息结构（不影响对话历史记录）：
+ *   [0] system     — 系统提示词（readSystemContext，启动时读取一次）
+ *   [1] user       — 用户上下文（getUserContext，启动时读取一次）
+ *   [2..] 对话历史  — 用户实际的 user/assistant 消息
+ *
+ * system 和 user 上下文消息仅存在于本次请求的 apiMessages 中，
+ * 不会被保存到 App.jsx 的 messages state，因此不会写入对话历史
+ *
  * @param {Array<{role: 'user' | 'assistant', content: string}>} messages - 对话历史
  * @yields {string} 大模型返回的文本片段
  */
 export async function* chatWithLLM(messages) {
-  // 构造发送给大模型的消息列表（在开头插入系统提示）
+  // 构造发送给大模型的消息列表
   const apiMessages = [
     { role: "system", content: SYSTEM_PROMPT },
+    // 用户上下文（agent.md），仅在有内容时插入
+    ...(USER_CONTEXT ? [{ role: "user", content: USER_CONTEXT }] : []),
     ...messages.map((msg) => ({ role: msg.role, content: msg.content })),
   ];
 
