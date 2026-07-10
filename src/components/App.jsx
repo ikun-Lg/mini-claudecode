@@ -7,7 +7,7 @@ import MessageBubble from './MessageBubble.jsx';
 import StatusBar from './StatusBar.jsx';
 import SuggestionList from './SuggestionList.jsx';
 import { COLORS, GLYPHS } from './theme.js';
-import { chatWithLLM, DEFAULT_MODEL, RULES_MAP } from '../request/llm.js';
+import { getAIResponse, DEFAULT_MODEL, RULES_MAP } from '../request/llm.js';
 import { cacheMessages, loadHistory } from '../utils/fsHandle.js';
 import { matchRules } from '../utils/contextRead.js';
 import {
@@ -317,14 +317,33 @@ export default function App() {
       ];
 
       // 流式接收大模型回复，逐块更新助手消息内容
+      // getAIResponse 会自动处理工具调用循环：有 tool_calls 时执行工具，
+      // 将结果 push 到 conversationMessages，然后递归调用大模型继续回复
       const assistantId = ++messageId;
       let fullContent = '';
-      let isFirstChunk = true;
+      let hasContent = false;
 
-      for await (const chunk of chatWithLLM(conversationMessages)) {
-        fullContent += chunk;
-        if (isFirstChunk) {
-          isFirstChunk = false;
+      for await (const event of getAIResponse(conversationMessages)) {
+        if (event.type === 'text') {
+          fullContent += event.content;
+        } else if (event.type === 'tool_start') {
+          // 工具开始：显示工具名和参数
+          const argsStr = event.args && Object.keys(event.args).length > 0
+            ? JSON.stringify(event.args)
+            : '';
+          fullContent += `\n\n🔧 ${event.name}${argsStr ? `(${argsStr})` : ''}\n`;
+        } else if (event.type === 'tool_end') {
+          // 工具结束：显示返回结果（截断过长的结果）
+          const resultStr = event.result || '(无返回)';
+          const truncated = resultStr.length > 500
+            ? resultStr.slice(0, 500) + '...(已截断)'
+            : resultStr;
+          fullContent += `✅ ${event.name} 返回:\n\`\`\`\n${truncated}\n\`\`\`\n`;
+        }
+
+        // 第一次收到任何内容时，创建助手消息并停止 thinking 动画
+        if (!hasContent) {
+          hasContent = true;
           setIsThinking(false);
           setMessages((prev) => [
             ...prev,
@@ -341,8 +360,8 @@ export default function App() {
         }
       }
 
-      // 如果没有收到任何片段，补充一条提示
-      if (isFirstChunk) {
+      // 如果没有收到任何内容，补充一条提示
+      if (!hasContent) {
         setMessages((prev) => [
           ...prev,
           {
