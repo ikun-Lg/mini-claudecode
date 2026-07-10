@@ -7,8 +7,9 @@ import MessageBubble from './MessageBubble.jsx';
 import StatusBar from './StatusBar.jsx';
 import SuggestionList from './SuggestionList.jsx';
 import { COLORS, GLYPHS } from './theme.js';
-import { chatWithLLM, DEFAULT_MODEL } from '../request/llm.js';
+import { chatWithLLM, DEFAULT_MODEL, RULES_MAP } from '../request/llm.js';
 import { cacheMessages, loadHistory } from '../utils/fsHandle.js';
+import { matchRules } from '../utils/contextRead.js';
 import {
   filterCommands,
   parseCommand,
@@ -264,8 +265,10 @@ export default function App() {
 
       if (fileRefs.length > 0) {
         const fileContexts = [];
+        const filePaths = [];
         for (const ref of fileRefs) {
           const filePath = ref.slice(1); // 去掉 @ 前缀
+          filePaths.push(filePath);
           const result = readFileContent(filePath);
           if (result.success && result.content !== null) {
             fileContexts.push(
@@ -282,6 +285,19 @@ export default function App() {
         // 发送内容：在用户问题后附带文件上下文
         llmContent =
           `${userQuestion}\n\n**附带的文件上下文：**\n\n${fileContexts.join('\n\n')}`;
+
+        // ── 匹配规则 ──
+        // 根据用户 @ 引用的文件路径，匹配 rulesMap 中的规则
+        // 匹配上的规则 content 会作为 user 消息追加到 llmContent 中
+        if (RULES_MAP.size > 0) {
+          const { matchedContents, matchedRuleNames } = matchRules(RULES_MAP, filePaths);
+          if (matchedRuleNames.length > 0) {
+            // 在发送内容中追加规则上下文
+            llmContent += `\n\n**适用的规则：**\n\n${matchedContents}`;
+            // 在显示内容中追加已应用的规则提示
+            displayContent += `\n\n📎 已应用规则: ${matchedRuleNames.join(', ')}`;
+          }
+        }
       }
 
       // 添加用户消息（仅显示引用的文件名，不显示文件内容）

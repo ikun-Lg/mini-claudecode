@@ -3,7 +3,12 @@ import fs from "fs";
 import path from "path";
 import OpenAI from "openai";
 import { getUserHomeDir, getCurrentWorkingDir } from "../utils/pathUtils.js";
-import { readSystemContext, getUserContext } from "../utils/contextRead.js";
+import {
+  readSystemContext,
+  getUserContext,
+  readRules,
+  getSkillHeaders,
+} from "../utils/contextRead.js";
 
 const SETTINGS_FILENAME = ".minicode/settings.json";
 
@@ -43,6 +48,10 @@ export const DEFAULT_MODEL = settings.model || "gpt-4o-mini";
 // system 消息和 user 上下文消息仅发送给大模型，不写入对话历史记录
 const SYSTEM_PROMPT = readSystemContext();
 const USER_CONTEXT = getUserContext();
+const SKILL_HEADERS = getSkillHeaders();
+
+// 规则映射表（启动时加载一次，供 App.jsx 匹配文件引用时使用）
+export const RULES_MAP = readRules();
 
 /**
  * 创建 OpenAI 客户端实例
@@ -63,7 +72,8 @@ export function createClient() {
  * 发送给大模型的消息结构（不影响对话历史记录）：
  *   [0] system     — 系统提示词（readSystemContext，启动时读取一次）
  *   [1] user       — 用户上下文（getUserContext，启动时读取一次）
- *   [2..] 对话历史  — 用户实际的 user/assistant 消息
+ *   [2] user       — skill 头部信息（getSkillHeaders，启动时读取一次）
+ *   [3..] 对话历史  — 用户实际的 user/assistant 消息
  *
  * system 和 user 上下文消息仅存在于本次请求的 apiMessages 中，
  * 不会被保存到 App.jsx 的 messages state，因此不会写入对话历史
@@ -77,6 +87,8 @@ export async function* chatWithLLM(messages) {
     { role: "system", content: SYSTEM_PROMPT },
     // 用户上下文（agent.md），仅在有内容时插入
     ...(USER_CONTEXT ? [{ role: "user", content: USER_CONTEXT }] : []),
+    // skill 头部信息，仅在有内容时插入
+    ...(SKILL_HEADERS ? [{ role: "user", content: SKILL_HEADERS }] : []),
     ...messages.map((msg) => ({ role: msg.role, content: msg.content })),
   ];
 
