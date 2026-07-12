@@ -5,7 +5,7 @@ import { COLORS, GLYPHS } from './theme.js';
 /**
  * 底部状态栏组件 — 显示模型名、消息计数、工作目录等信息
  */
-export default function StatusBar({ model, messageCount, isThinking }) {
+export default function StatusBar({ model, messageCount, isThinking, isToolRunning, currentToolName }) {
   const cwd = process.cwd();
   const dirName = cwd.split('/').pop() || cwd;
 
@@ -38,6 +38,14 @@ export default function StatusBar({ model, messageCount, isThinking }) {
             <Text color={COLORS.textDim}> {' | '} </Text>
             <Text color={COLORS.accentWarning} bold>
               {' thinking...'}
+            </Text>
+          </>
+        )}
+        {isToolRunning && (
+          <>
+            <Text color={COLORS.textDim}> {' | '} </Text>
+            <Text color={COLORS.accentWarning} bold>
+              {` running ${currentToolName}...`}
             </Text>
           </>
         )}
