@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import TextInput from 'ink-text-input';
 import Spinner from 'ink-spinner';
@@ -6,6 +6,8 @@ import Banner from './Banner.jsx';
 import MessageBubble from './MessageBubble.jsx';
 import StatusBar from './StatusBar.jsx';
 import SuggestionList from './SuggestionList.jsx';
+import ConfirmInput from './ConfirmInput.jsx';
+import SelectInput from './SelectInput.jsx';
 import { COLORS, GLYPHS } from './theme.js';
 import { getAIResponse, DEFAULT_MODEL, RULES_MAP } from '../request/llm.js';
 import { cacheMessages, loadHistory } from '../utils/fsHandle.js';
@@ -21,11 +23,69 @@ import {
   filterFiles,
   readFileContent,
 } from '../utils/fileSearch.js';
+import { setInteractionHandler } from '../tools/local/interactionBridge.js';
 
 const CURRENT_MODEL = DEFAULT_MODEL;
 
 // 消息自增 ID
 let messageId = 0;
+
+// ── 工具显示辅助函数 ──
+
+/**
+ * 每个工具对应的图标
+ */
+const TOOL_ICONS = {
+  bash: '⚡',
+  read_file: '📖',
+  write_file: '📝',
+  edit_file: '✏️',
+  multi_edit: '📋',
+  glob: '🔍',
+  grep: '🔎',
+  list_dir: '📂',
+  confirm: '❓',
+  select: '🎯',
+  todo_write: '📌',
+  skill: '🧩',
+};
+
+/**
+ * 需要截断的长参数字段
+ */
+const LONG_ARG_KEYS = new Set(['content', 'old_string', 'new_string', 'command']);
+
+/**
+ * 格式化工具参数用于显示：截断过长的参数值
+ */
+function formatToolArgs(args) {
+  if (!args || Object.keys(args).length === 0) return '';
+  const formatted = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value === 'string' && LONG_ARG_KEYS.has(key)) {
+      // 长参数截断到 80 字符
+      if (value.length > 80) {
+        formatted[key] = value.slice(0, 80) + '...';
+      } else {
+        formatted[key] = value;
+      }
+    } else if (typeof value === 'string') {
+      formatted[key] = value.length > 120 ? value.slice(0, 120) + '...' : value;
+    } else if (Array.isArray(value)) {
+      formatted[key] = `[${value.length} 项]`;
+    } else {
+      formatted[key] = value;
+    }
+  }
+  return JSON.stringify(formatted);
+}
+
+/**
+ * 获取工具图标
+ */
+function getToolIcon(name) {
+  return TOOL_ICONS[name] || '🔧';
+}
 
 /**
  * 主对话应用组件
@@ -35,6 +95,21 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [isToolRunning, setIsToolRunning] = useState(false);
+  const [currentToolName, setCurrentToolName] = useState('');
+
+  // ── 交互状态 ──
+  // 当 confirm/select 工具请求用户交互时，此状态保存交互请求
+  // { type: 'confirm'|'select', data: {...}, resolve: Function }
+  const [interaction, setInteraction] = useState(null);
+
+  // 注册交互处理器：工具层通过 interactionBridge 请求交互时，
+  // 设置 interaction 状态，触发 React 渲染对应的交互组件
+  useEffect(() => {
+    setInteractionHandler(({ type, data, resolve }) => {
+      setInteraction({ type, data, resolve });
+    });
+  }, []);
 
   // ── 建议列表状态 ──
   // null | 'command' | 'file' | 'history'
@@ -158,7 +233,7 @@ export default function App() {
         setSuggestionMode(null);
       }
     },
-    { isActive: !isThinking && suggestionMode !== null },
+    { isActive: !isThinking && !interaction && suggestionMode !== null },
   );
 
   // ── 处理提交 ──
@@ -327,18 +402,23 @@ export default function App() {
         if (event.type === 'text') {
           fullContent += event.content;
         } else if (event.type === 'tool_start') {
-          // 工具开始：显示工具名和参数
-          const argsStr = event.args && Object.keys(event.args).length > 0
-            ? JSON.stringify(event.args)
-            : '';
-          fullContent += `\n\n🔧 ${event.name}${argsStr ? `(${argsStr})` : ''}\n`;
+          // 工具开始：显示工具名和参数（参数截断防止刷屏）
+          const icon = getToolIcon(event.name);
+          const argsStr = formatToolArgs(event.args);
+          fullContent += `\n\n${icon} ${event.name}${argsStr ? `(${argsStr})` : ''}\n`;
+          // 标记工具正在执行，隐藏 TextInput（避免与 confirm/select 等交互工具冲突）
+          setIsToolRunning(true);
+          setCurrentToolName(event.name);
         } else if (event.type === 'tool_end') {
           // 工具结束：显示返回结果（截断过长的结果）
           const resultStr = event.result || '(无返回)';
-          const truncated = resultStr.length > 500
-            ? resultStr.slice(0, 500) + '...(已截断)'
+          const truncated = resultStr.length > 2000
+            ? resultStr.slice(0, 2000) + '...(已截断)'
             : resultStr;
           fullContent += `✅ ${event.name} 返回:\n\`\`\`\n${truncated}\n\`\`\`\n`;
+          // 工具执行完毕，恢复输入框
+          setIsToolRunning(false);
+          setCurrentToolName('');
         }
 
         // 第一次收到任何内容时，创建助手消息并停止 thinking 动画
@@ -386,7 +466,7 @@ export default function App() {
         <MessageBubble key={message.id} message={message} />
       ))}
 
-      {/* 思考中或输入框 */}
+      {/* 思考中 / 工具执行中 / 输入框 */}
       {isThinking ? (
         <Box marginTop={1} flexDirection="column">
           <Box>
@@ -402,6 +482,42 @@ export default function App() {
             <Text color={COLORS.textDim}>
               {' · '}
               <Spinner type="dots" />
+            </Text>
+          </Box>
+        </Box>
+      ) : interaction ? (
+        // ── 交互组件（confirm/select）──
+        // 优先级高于 isToolRunning：工具执行中需要用户交互时显示
+        interaction.type === 'confirm' ? (
+          <ConfirmInput
+            message={interaction.data.message}
+            defaultValue={interaction.data.default}
+            onConfirm={(result) => {
+              interaction.resolve(result);
+              setInteraction(null);
+            }}
+          />
+        ) : interaction.type === 'select' ? (
+          <SelectInput
+            message={interaction.data.message}
+            choices={interaction.data.choices}
+            onSelect={(result) => {
+              interaction.resolve(result);
+              setInteraction(null);
+            }}
+          />
+        ) : null
+      ) : isToolRunning ? (
+        <Box marginTop={1} flexDirection="column">
+          <Box>
+            <Text color={COLORS.accentWarning} bold>
+              {`${getToolIcon(currentToolName)} `}
+            </Text>
+            <Text color={COLORS.accentWarning}>
+              <Spinner type="dots" />
+            </Text>
+            <Text color={COLORS.textMuted}>
+              {` 正在执行 ${currentToolName}...`}
             </Text>
           </Box>
         </Box>
@@ -438,6 +554,8 @@ export default function App() {
         model={CURRENT_MODEL}
         messageCount={messages.length}
         isThinking={isThinking}
+        isToolRunning={isToolRunning}
+        currentToolName={currentToolName}
       />
     </Box>
   );
