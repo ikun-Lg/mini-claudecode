@@ -300,6 +300,22 @@ export default function App() {
             process.stdout.write('\x1b[2J\x1b[H');
           }
           setInput('');
+
+          // 异步任务（如 /vector 向量化）：先展示 placeholder，后台执行完成后更新消息
+          if (result.asyncTask) {
+            const taskMsgId = messageId; // 最后一条助手消息的 ID
+            (async () => {
+              const taskResult = await result.asyncTask(result.messages);
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === taskMsgId
+                    ? { ...msg, content: taskResult.content }
+                    : msg,
+                ),
+              );
+            })();
+          }
+
           return; // 阻断类指令到此结束，不发送 LLM 请求
         } else if (cmdType === 'non-blocking') {
           // ── 非阻断类指令：返回上下文字符串，与用户文本组合后发送给大模型 ──

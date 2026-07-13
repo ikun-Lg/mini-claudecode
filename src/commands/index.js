@@ -26,6 +26,7 @@
 //   { context: string, messages?: [...] }           — context 与 remainingText 组合后发 LLM
 
 import { getHistoryList, loadCustomCommands } from '../utils/fsHandle.js';
+import { storeAllFilesIn, getRagFileListSync } from '../utils/ragHandle.js';
 
 /** @type {Array} */
 const commandRegistry = [];
@@ -177,6 +178,82 @@ registerCommand({
     }
 
     return { action: 'select-history', histories };
+  },
+});
+
+// /vector — 将所有本地文档向量化并存入向量数据库
+//
+// 扫描 ~/.minicode/doc/ 和 .minicode/doc/ 下的 .md/.txt/.docx 文件，
+// 切割后逐条调用 embedding 模型生成向量，存入 LanceDB。
+//
+// 由于 storeAllFilesIn 是异步且耗时操作，execute 返回一个 asyncTask，
+// App.jsx 会在展示"正在处理"消息后执行该任务，完成后更新消息内容。
+registerCommand({
+  name: '/vector',
+  description: '将本地文档向量化并存入数据库',
+  type: 'blocking',
+  execute: ({ messages }) => {
+    // 先同步收集文件信息，用于展示
+    const { userFiles, currentDirFiles } = getRagFileListSync();
+    const totalFiles = userFiles.length + currentDirFiles.length;
+
+    if (totalFiles === 0) {
+      return {
+        action: 'done',
+        messages: [
+          ...messages,
+          {
+            role: 'assistant',
+            content:
+              '**未找到可向量化的文档。**\n\n'
+              + '请将文档放在以下目录之一：\n'
+              + '- `~/.minicode/doc/`（用户级，所有项目共享）\n'
+              + '- `.minicode/doc/`（项目级，当前项目专用）\n\n'
+              + '支持的格式：`.md`、`.txt`、`.docx`',
+          },
+        ],
+      };
+    }
+
+    // 构建文件列表摘要
+    const fileList = [
+      ...userFiles,
+      ...currentDirFiles,
+    ];
+    const fileSummary = fileList.map((p) => `- \`${p}\``).join('\n');
+
+    // 返回"正在处理"消息 + 异步任务
+    const placeholderMsg = {
+      role: 'assistant',
+      content:
+        `**正在向量化文档...**\n\n`
+        + `共 **${totalFiles}** 个文件：\n${fileSummary}\n\n`
+        + '⏳ 正在切割文本并生成向量，请稍候...',
+    };
+
+    return {
+      action: 'done',
+      messages: [...messages, placeholderMsg],
+      asyncTask: async (updatedMessages) => {
+        try {
+          await storeAllFilesIn();
+
+          // 构建成功消息
+          const successContent =
+            `**✅ 向量化完成！**\n\n`
+            + `共处理 **${totalFiles}** 个文件：\n${fileSummary}\n\n`
+            + '文档已存入 LanceDB 向量数据库，后续对话中会自动检索相关内容。';
+
+          return { content: successContent };
+        } catch (error) {
+          return {
+            content:
+              `**❌ 向量化失败**\n\n错误信息：${error.message}\n\n`
+              + '请检查文件格式和网络连接后重试。',
+          };
+        }
+      },
+    };
   },
 });
 

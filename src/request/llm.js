@@ -1,6 +1,7 @@
 // 大模型请求模块：封装与 OpenAI 接口的通信，支持工具调用循环
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import { getUserHomeDir, getCurrentWorkingDir } from "../utils/pathUtils.js";
 import {
@@ -11,6 +12,7 @@ import {
 } from "../utils/contextRead.js";
 import { excuteTool, getTools } from "../tools/index.js";
 import { transformToOpenAi } from "../tools/util.js";
+import { searchLocalVector } from "../utils/ragHandle.js";
 
 const SETTINGS_FILENAME = ".minicode/settings.json";
 
@@ -52,6 +54,18 @@ const SYSTEM_PROMPT = readSystemContext();
 const USER_CONTEXT = getUserContext();
 const SKILL_HEADERS = getSkillHeaders();
 
+// RAG 检索模板（启动时加载一次，用户提问时填充检索结果）
+const RAG_TEMPLATE = (() => {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const templatePath = path.join(__dirname, "..", "docs", "ragTemplate.md");
+  try {
+    return fs.readFileSync(templatePath, "utf-8");
+  } catch {
+    return "";
+  }
+})();
+
 // 规则映射表（启动时加载一次，供 App.jsx 匹配文件引用时使用）
 export const RULES_MAP = readRules();
 
@@ -70,17 +84,19 @@ export function createClient() {
 
 /**
  * 构建发送给大模型的消息列表
- * 在对话历史前插入 system prompt、用户上下文、skill 头部信息
+ * 在对话历史前插入 system prompt、用户上下文、skill 头部信息、RAG 检索上下文
  * 同时正确处理 tool 角色消息和带 tool_calls 的 assistant 消息
  *
  * @param {Array} messages - 对话历史（可能包含 tool 消息和 tool_calls）
+ * @param {string} [ragContext=""] - RAG 检索到的参考资料上下文（已填充模板）
  * @returns {Array} 发送给大模型的完整消息列表
  */
-function buildApiMessages(messages) {
+function buildApiMessages(messages, ragContext = "") {
   return [
     { role: "system", content: SYSTEM_PROMPT },
     ...(USER_CONTEXT ? [{ role: "user", content: USER_CONTEXT }] : []),
     ...(SKILL_HEADERS ? [{ role: "user", content: SKILL_HEADERS }] : []),
+    ...(ragContext ? [{ role: "user", content: ragContext }] : []),
     ...messages.map((msg) => {
       // tool 角色的消息需要带上 tool_call_id
       if (msg.role === "tool") {
@@ -122,7 +138,25 @@ export async function* getAIResponse(messages) {
     // 获取当前已加载的工具列表（本地工具立即可用，MCP工具后台异步加载）
     const tools = getTools();
 
-    const apiMessages = buildApiMessages(messages);
+    // ── RAG 检索：用户发送提问时，搜索本地向量库获取相关参考资料 ──
+    // 仅在最后一条消息是用户消息时执行（递归调用时最后一条是 tool 结果，跳过）
+    let ragContext = "";
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === "user" && RAG_TEMPLATE) {
+      try {
+        const ragResults = await searchLocalVector(lastMsg.content);
+        if (ragResults && ragResults.length > 0) {
+          ragContext = RAG_TEMPLATE.replace(
+            /\$\{ragContent\}/g,
+            ragResults.join("\n\n"),
+          );
+        }
+      } catch {
+        // RAG 检索失败，不阻断主流程，继续无上下文对话
+      }
+    }
+
+    const apiMessages = buildApiMessages(messages, ragContext);
     const client = createClient();
 
     const stream = await client.chat.completions.create({
