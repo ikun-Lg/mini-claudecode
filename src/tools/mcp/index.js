@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 /**
  * 获取MCP配置
- * 从用户目录和项目目录读取 .front/settings.json 配置文件并合并
+ * 从用户目录和项目目录读取 .minicode/settings.json 配置文件并合并
  * @returns {Array} 合并后的MCP服务器配置数组
  */
 export function getMcpConfig() {

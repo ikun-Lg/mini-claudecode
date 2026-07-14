@@ -12,6 +12,8 @@ import read_file from './read_file.js';
 import select from './select.js';
 import todo_write from './todo_write.js';
 import write_file from './write_file.js';
+import memory_save from './memory_save.js';
+import memory_get from './memory_get.js';
 
 
 export default function getLocalTool() {
@@ -28,6 +30,8 @@ export default function getLocalTool() {
     localClient.registerTool(select);
     localClient.registerTool(todo_write);
     localClient.registerTool(write_file);
+    localClient.registerTool(memory_save);
+    localClient.registerTool(memory_get);
 
 
     const localTools = localClient.listTools();

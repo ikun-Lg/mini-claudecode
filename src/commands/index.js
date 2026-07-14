@@ -27,6 +27,8 @@
 
 import { getHistoryList, loadCustomCommands } from '../utils/fsHandle.js';
 import { storeAllFilesIn, getRagFileListSync } from '../utils/ragHandle.js';
+import { getMemoryContent } from '../utils/memoryUtils.js';
+import { getAIResponse } from '../request/llm.js';
 
 /** @type {Array} */
 const commandRegistry = [];
@@ -250,6 +252,65 @@ registerCommand({
             content:
               `**❌ 向量化失败**\n\n错误信息：${error.message}\n\n`
               + '请检查文件格式和网络连接后重试。',
+          };
+        }
+      },
+    };
+  },
+});
+
+// /memory — 调用大模型分析上下文并生成记忆
+//
+// 读取记忆模板（含当前记忆、上下文、对话历史），发送给大模型，
+// 大模型仅可使用 memorySave 工具，分析后写入项目级和用户级记忆文件。
+registerCommand({
+  name: '/memory',
+  description: '生成记忆 - 调用大模型分析上下文并写入记忆文件',
+  type: 'blocking',
+  execute: ({ messages }) => {
+    // 先展示 placeholder 消息，后台异步执行记忆生成
+    const placeholderMsg = {
+      role: 'assistant',
+      content:
+        '**AI 正在生成记忆...**\n\n⏳ 正在分析上下文与对话历史，请稍候...',
+    };
+
+    return {
+      action: 'done',
+      messages: [...messages, placeholderMsg],
+      asyncTask: async () => {
+        try {
+          // 1. 获取要发给大模型的记忆模板内容（含当前记忆、上下文、对话历史）
+          const memoryContent = getMemoryContent();
+
+          // 2. 构造消息：内容携带记忆模板
+          const memoryMessages = [{ role: 'user', content: memoryContent }];
+
+          // 3. 请求大模型接口，只携带 memorySave 工具
+          //    大模型分析上下文后调用 memorySave 写入记忆文件
+          let resultText = '';
+          for await (const event of getAIResponse(memoryMessages, {
+            toolFilter: (tool) => tool.name === 'memorySave',
+          })) {
+            if (event.type === 'text') {
+              resultText += event.content;
+            } else if (event.type === 'tool_start') {
+              resultText += `\n\n📝 正在执行 ${event.name}...\n`;
+            } else if (event.type === 'tool_end') {
+              resultText += `✅ ${event.name} 返回: ${event.result}\n`;
+            }
+          }
+
+          return {
+            content:
+              `**✅ 记忆生成完成！**\n\n`
+              + (resultText || '大模型已完成记忆分析和写入。'),
+          };
+        } catch (error) {
+          return {
+            content:
+              `**❌ 生成记忆失败**\n\n错误信息：${error.message}\n\n`
+              + '请检查网络连接和大模型配置后重试。',
           };
         }
       },

@@ -59,8 +59,10 @@ export function readSystemContext() {
  * 读取 src/docs/userContext.md 模板，然后：
  *   1. 读取用户 home 目录下 ~/.minicode/agent.md，替换 ${userPath} 和 ${userContent}
  *   2. 读取当前工作目录下 .minicode/agent.md，替换 ${projectPath} 和 ${projectContent}
+ *   3. 读取用户级和项目级记忆文件（.minicode/memory/memory.md），替换 ${memorySection}
  *
- * 如果对应文件不存在，则该组变量均替换为空字符串
+ * 如果对应文件不存在，则该组变量均替换为空字符串。
+ * 记忆部分仅在有实际内容时才插入，避免发送空的记忆标题。
  *
  * @returns {string} 替换后的用户上下文
  */
@@ -103,12 +105,53 @@ export function getUserContext() {
     // 文件不存在，保持空字符串
   }
 
+  // ── 读取用户级和项目级记忆文件 ──
+  const userMemoryPath = path.join(
+    getUserHomeDir(),
+    ".minicode",
+    "memory",
+    "memory.md",
+  );
+  const projectMemoryPath = path.join(
+    getCurrentWorkingDir(),
+    ".minicode",
+    "memory",
+    "memory.md",
+  );
+
+  let userMemory = "";
+  let projectMemory = "";
+  try {
+    userMemory = fs.readFileSync(userMemoryPath, "utf-8");
+  } catch {
+    // 文件不存在，保持空字符串
+  }
+  try {
+    projectMemory = fs.readFileSync(projectMemoryPath, "utf-8");
+  } catch {
+    // 文件不存在，保持空字符串
+  }
+
+  // 构建记忆部分：仅在有实际内容时才插入，避免发送空标题
+  let memorySection = "";
+  if (userMemory.trim() || projectMemory.trim()) {
+    memorySection =
+      "\n## 记忆\n以下是之前对话中提取的记忆信息，请参考：\n";
+    if (userMemory.trim()) {
+      memorySection += `\n### 用户级记忆\n${userMemory}\n`;
+    }
+    if (projectMemory.trim()) {
+      memorySection += `\n### 项目级记忆\n${projectMemory}\n`;
+    }
+  }
+
   // 替换模板变量
   return template
     .replace(/\$\{userPath\}/g, userAgentPathStr)
     .replace(/\$\{userContent\}/g, userAgentContent)
     .replace(/\$\{projectPath\}/g, projectAgentPathStr)
-    .replace(/\$\{projectContent\}/g, projectAgentContent);
+    .replace(/\$\{projectContent\}/g, projectAgentContent)
+    .replace(/\$\{memorySection\}/g, memorySection);
 }
 
 /**

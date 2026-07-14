@@ -131,12 +131,18 @@ function buildApiMessages(messages, ragContext = "") {
  *   6. 没有工具调用时，循环结束
  *
  * @param {Array} messages - 对话历史（可变数组，函数会向其中 push 消息）
+ * @param {Object} [options={}] - 可选配置
+ * @param {Function} [options.toolFilter] - 工具过滤函数，传入后只保留返回 true 的工具
  * @yields {{type: 'text', content: string} | {type: 'tool_start', name: string} | {type: 'tool_end', name: string, result: string}}
  */
-export async function* getAIResponse(messages) {
+export async function* getAIResponse(messages, options = {}) {
   try {
     // 获取当前已加载的工具列表（本地工具立即可用，MCP工具后台异步加载）
-    const tools = getTools();
+    const allTools = getTools();
+    // 如果提供了 toolFilter，则只保留过滤后的工具（如 /memory 指令只需 memorySave）
+    const tools = options.toolFilter
+      ? allTools.filter(options.toolFilter)
+      : allTools;
 
     // ── RAG 检索：用户发送提问时，搜索本地向量库获取相关参考资料 ──
     // 仅在最后一条消息是用户消息时执行（递归调用时最后一条是 tool 结果，跳过）
