@@ -222,7 +222,7 @@ mini-claudecode/
 │       ├── skills/              # 技能模板
 │       ├── rules/               # 规则模板
 │       ├── agent.md             # 自定义指令模板
-│       └── settings.example.json# 配置模板
+│       └── settings.json        # 配置模板（安装后复制为 ~/.minicode/settings.json）
 ├── models/                      # Embedding 模型（运行时自动下载，不随包发布）
 └── package.json
 ```
