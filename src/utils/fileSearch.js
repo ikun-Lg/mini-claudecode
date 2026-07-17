@@ -64,6 +64,21 @@ const MAX_FILES = 200;
 // 单文件最大读取大小（1MB）
 const MAX_FILE_SIZE = 1024 * 1024;
 
+// design 文件夹路径（相对于项目根目录）
+const DESIGN_DIR = '.minicode/design';
+
+// 图片扩展名集合
+const IMAGE_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.bmp',
+  '.webp',
+  '.svg',
+  '.ico',
+]);
+
 /**
  * 递归扫描目录，收集所有文件路径（相对路径）
  * @param {string} dir - 当前扫描的绝对路径
@@ -159,4 +174,62 @@ export function readFileContent(filePath) {
       error: error?.message || String(error),
     };
   }
+}
+
+/**
+ * 扫描 .minicode/design/ 目录，收集所有图片文件（相对路径）
+ * 结果会缓存在模块级别，避免重复扫描
+ * @returns {string[]} 图片文件相对路径列表（相对于 design 目录）
+ */
+let _cachedDesignImages = null;
+
+export function getDesignImages() {
+  if (_cachedDesignImages) return _cachedDesignImages;
+  const cwd = getCurrentWorkingDir();
+  const designDir = path.join(cwd, DESIGN_DIR);
+  _cachedDesignImages = scanImageDir(designDir);
+  return _cachedDesignImages;
+}
+
+/**
+ * 递归扫描目录，仅收集图片文件
+ * @param {string} dir - 当前扫描的绝对路径
+ * @param {string} basePath - 相对路径前缀
+ * @param {string[]} results - 累积的结果数组
+ * @returns {string[]} 图片文件相对路径列表
+ */
+function scanImageDir(dir, basePath = '', results = []) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const entry of entries) {
+    const relativePath = basePath
+      ? `${basePath}/${entry.name}`
+      : entry.name;
+
+    if (entry.isDirectory()) {
+      scanImageDir(path.join(dir, entry.name), relativePath, results);
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name).toLowerCase();
+      if (IMAGE_EXTENSIONS.has(ext)) {
+        results.push(relativePath);
+      }
+    }
+  }
+
+  return results;
+}
+
+/**
+ * 获取 design 图片的完整绝对路径
+ * @param {string} imageName - 相对于 design 目录的图片路径
+ * @returns {string} 绝对路径
+ */
+export function getDesignImagePath(imageName) {
+  const cwd = getCurrentWorkingDir();
+  return path.join(cwd, DESIGN_DIR, imageName);
 }

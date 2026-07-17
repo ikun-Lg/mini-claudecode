@@ -139,6 +139,6 @@ export function getMemoryContent() {
   return template;
 }
 
-fs.writeFileSync("./record.json", JSON.stringify(getMemoryContent()));
+// fs.writeFileSync("./record.json", JSON.stringify(getMemoryContent()));
 
 // console.log(getMemoryContent());

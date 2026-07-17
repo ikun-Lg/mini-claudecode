@@ -150,7 +150,17 @@ export async function* getAIResponse(messages, options = {}) {
     const lastMsg = messages[messages.length - 1];
     if (lastMsg && lastMsg.role === "user" && RAG_TEMPLATE) {
       try {
-        const ragResults = await searchLocalVector(lastMsg.content);
+        // 处理多模态内容：content 可能是字符串或数组（text + image_url）
+        const searchText =
+          typeof lastMsg.content === "string"
+            ? lastMsg.content
+            : Array.isArray(lastMsg.content)
+              ? lastMsg.content
+                  .filter((c) => c.type === "text")
+                  .map((c) => c.text)
+                  .join("\n")
+              : String(lastMsg.content || "");
+        const ragResults = await searchLocalVector(searchText);
         if (ragResults && ragResults.length > 0) {
           ragContext = RAG_TEMPLATE.replace(
             /\$\{ragContent\}/g,

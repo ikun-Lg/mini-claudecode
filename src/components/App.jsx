@@ -22,7 +22,10 @@ import {
   getAllFiles,
   filterFiles,
   readFileContent,
+  getDesignImages,
+  getDesignImagePath,
 } from '../utils/fileSearch.js';
+import { imageToBase64 } from '../utils/fileHandle.js';
 import { setInteractionHandler } from '../tools/local/interactionBridge.js';
 
 const CURRENT_MODEL = DEFAULT_MODEL;
@@ -139,6 +142,12 @@ export default function App() {
       const query = atMatch ? atMatch[1] : '';
       return filterFiles(getAllFiles(), query);
     }
+    if (suggestionMode === 'image') {
+      // 最后一个以 # 开头的词中，# 后面的部分作为查询
+      const hashMatch = input.match(/(?:^|\s)#([^#\s]*)$/);
+      const query = hashMatch ? hashMatch[1] : '';
+      return filterFiles(getDesignImages(), query);
+    }
     if (suggestionMode === 'history') {
       return historyList;
     }
@@ -160,6 +169,14 @@ export default function App() {
     const atMatch = value.match(/(?:^|\s)@([^@\s]*)$/);
     if (atMatch) {
       setSuggestionMode('file');
+      setSuggestionIndex(0);
+      return;
+    }
+
+    // 检测图片模式：最后一个词以 # 开头（# 在行首或空格之后）
+    const hashMatch = value.match(/(?:^|\s)#([^#\s]*)$/);
+    if (hashMatch) {
+      setSuggestionMode('image');
       setSuggestionIndex(0);
       return;
     }
@@ -188,6 +205,18 @@ export default function App() {
       const newValue = input.replace(
         /(^|\s)@([^@\s]*)$/,
         (_match, prefix) => `${prefix}@${filePath} `,
+      );
+      setInput(newValue);
+      setSuggestionMode(null);
+      // 强制 TextInput 重新挂载，使光标移到末尾
+      setTextInputKey((k) => k + 1);
+    } else if (suggestionMode === 'image') {
+      // 图片模式：替换 # 后面的查询部分为选中的图片名
+      const imageName =
+        typeof selected === 'string' ? selected : selected.name;
+      const newValue = input.replace(
+        /(^|\s)#([^#\s]*)$/,
+        (_match, prefix) => `${prefix}#${imageName} `,
       );
       setInput(newValue);
       setSuggestionMode(null);
@@ -391,7 +420,50 @@ export default function App() {
         }
       }
 
-      // 添加用户消息（仅显示引用的文件名，不显示文件内容）
+      // ── 解析 #图片引用 ──
+      // 显示内容：将 #imagename 美化为 🖼️ `imagename`
+      // 发送内容：将图片转为 base64，构造多模态消息（text + image_url）
+      const imageRefs = userQuestion.match(/#([^\s#]+)/g) || [];
+      if (imageRefs.length > 0) {
+        const imageContents = [];
+        const imageNames = [];
+        const imagePaths = [];
+        for (const ref of imageRefs) {
+          const imageName = ref.slice(1); // 去掉 # 前缀
+          imageNames.push(imageName);
+          const fullPath = getDesignImagePath(imageName);
+          imagePaths.push(fullPath);
+          try {
+            const base64Url = await imageToBase64(fullPath);
+            imageContents.push({
+              type: 'image_url',
+              image_url: { url: base64Url },
+            });
+          } catch (e) {
+            imageContents.push({
+              type: 'text',
+              text: `(图片 ${imageName} 读取失败: ${e?.message || String(e)})`,
+            });
+          }
+        }
+        // 显示内容：将 #imagename 替换为 🖼️ `imagename` 以美化显示
+        displayContent = displayContent.replace(/#([^\s#]+)/g, '🖼️ `$1`');
+        // 发送内容：构造多模态格式（文本 + 图片）
+        const textPart =
+          typeof llmContent === 'string' ? llmContent : '';
+        // 在文本中移除 #imagename 引用，添加图片说明（含绝对路径，供 diff_pic 工具使用）
+        const textWithoutHash = textPart.replace(/#([^\s#]+)/g, '').replace(/\n{3,}/g, '\n\n').trim();
+        const imageDesc = imageNames.map((name, i) => `${name} (绝对路径: ${imagePaths[i]})`).join(', ');
+        llmContent = [
+          {
+            type: 'text',
+            text: `${textWithoutHash}\n\n**附带的图片：** ${imageDesc}\n\n注意：以上绝对路径可直接用于 diff_pic 工具的 design 参数，无需向用户索要设计图路径。`,
+          },
+          ...imageContents,
+        ];
+      }
+
+      // 添加用户消息（仅显示引用的文件名/图片名，不显示文件内容）
       const userMsg = {
         id: ++messageId,
         role: 'user',
@@ -548,7 +620,7 @@ export default function App() {
               value={input}
               onChange={handleChange}
               onSubmit={handleSubmit}
-              placeholder="输入消息，按 Enter 发送... (输入 / 查看指令，输入 @ 引用文件)"
+              placeholder="输入消息，按 Enter 发送... (输入 / 查看指令，输入 @ 引用文件，输入 # 引用图片)"
             />
           </Box>
           {/* 指令/文件建议列表 */}

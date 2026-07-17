@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 // 整个项目的启动入口
 import React from "react";
 import { render } from "ink";
