@@ -1,5 +1,5 @@
 {
-  "name": "mini-claudecode",
+  "name": "@lggbond/mini-claudecode",
   "version": "1.0.0",
   "description": "一个最小化的 Claude Code CLI 实现 —— 运行在终端中的 AI 编程助手",
   "main": "src/app.js",
@@ -9,15 +9,15 @@
     "postinstall": "node scripts/postinstall.js"
   },
   "bin": {
-    "minicode": "./bin/minicode.js"
+    "minicode": "bin/minicode.js"
   },
   "files": [
     "bin/",
     "src/",
     "scripts/",
     "templates/",
-    "models/",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "type": "module",
   "keywords": [
@@ -29,8 +29,23 @@
     "openai",
     "chatbot"
   ],
-  "author": "",
+  "author": "ikun-Lg <1493170339@qq.com>",
   "license": "ISC",
+  "homepage": "https://github.com/ikun-Lg/mini-claudecode#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ikun-Lg/mini-claudecode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ikun-Lg/mini-claudecode/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "packageManager": "pnpm@10.30.0",
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

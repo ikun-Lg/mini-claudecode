@@ -10,7 +10,7 @@
  *   - 幂等：多次运行结果一致
  *
  * 用法：
- *   npm install mini-claudecode      → 自动执行
+ *   npm install @lggbond/mini-claudecode      → 自动执行
  *   node scripts/postinstall.js      → 手动执行
  *   node scripts/postinstall.js -f   → 强制覆盖（覆盖已有文件）
  */

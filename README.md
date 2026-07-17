@@ -38,10 +38,12 @@
 #### 方式一：全局安装（推荐）
 
 ```bash
-npm install -g mini-claudecode
+npm install -g @lggbond/mini-claudecode
 ```
 
 安装后会自动将 AI 增强内容（commands、skills、rules 等）复制到 `~/.minicode/` 目录。
+
+> **说明**：Embedding 模型（约 120MB）不随包发布，首次使用 `/vector` 指令或 RAG 功能时会自动从镜像站下载到 `~/.minicode/transformers-cache/`，后续复用本地缓存。
 
 #### 方式二：从源码安装
 
@@ -221,7 +223,7 @@ mini-claudecode/
 │       ├── rules/               # 规则模板
 │       ├── agent.md             # 自定义指令模板
 │       └── settings.example.json# 配置模板
-├── models/                      # 内置 embedding 模型
+├── models/                      # Embedding 模型（运行时自动下载，不随包发布）
 └── package.json
 ```
 
@@ -277,7 +279,7 @@ mini-claudecode/
 npm version patch  # 或 minor / major
 
 # 2. 发布到 npm
-npm publish
+npm publish --access public
 ```
 
 发布后，用户通过 `npm install -g mini-claudecode` 安装时，`postinstall` 脚本会自动将 `templates/.minicode/` 中的 AI 增强内容复制到 `~/.minicode/`。
@@ -285,7 +287,7 @@ npm publish
 **非破坏性安装**：已存在的文件不会被覆盖。如需强制更新，可手动执行：
 
 ```bash
-node node_modules/mini-claudecode/scripts/postinstall.js -f
+node node_modules/@lggbond/mini-claudecode/scripts/postinstall.js -f
 ```
 
 ## 📄 License
