@@ -1,6 +1,6 @@
 {
   "name": "@lggbond/mini-claudecode",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "一个最小化的 Claude Code CLI 实现 —— 运行在终端中的 AI 编程助手",
   "main": "src/app.js",
   "scripts": {
