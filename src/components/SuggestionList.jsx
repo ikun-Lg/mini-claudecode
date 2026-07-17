@@ -12,7 +12,7 @@ const MAX_VISIBLE = 8;
  * @param {Object} props
  * @param {Array} props.items - 建议项列表
  * @param {number} props.selectedIndex - 当前选中索引
- * @param {'command' | 'file' | 'history'} props.mode - 建议模式
+ * @param {'command' | 'file' | 'image' | 'history'} props.mode - 建议模式
  */
 export default function SuggestionList({ items, selectedIndex, mode }) {
   if (items.length === 0) {
@@ -36,7 +36,9 @@ export default function SuggestionList({ items, selectedIndex, mode }) {
       ? '  ┄ 可用指令'
       : mode === 'file'
         ? '  ┄ 项目文件'
-        : '  ┄ 历史对话';
+        : mode === 'image'
+          ? '  ┄ 设计图片'
+          : '  ┄ 历史对话';
 
   return (
     <Box flexDirection="column" paddingLeft={2} marginTop={0}>
@@ -94,6 +96,29 @@ export default function SuggestionList({ items, selectedIndex, mode }) {
               </Text>
               <Text color={COLORS.textDim}> · {item.messageCount}条 · </Text>
               <Text color={COLORS.textMuted}>{item.preview}</Text>
+            </Box>
+          );
+        }
+
+        // ── 图片模式 ──
+        if (mode === 'image') {
+          const imagePath = typeof item === 'string' ? item : item.name;
+          return (
+            <Box key={imagePath}>
+              <Text
+                color={isSelected ? COLORS.accentSecondary : COLORS.textDim}
+              >
+                {isSelected ? '▶ ' : '  '}
+              </Text>
+              <Text color={isSelected ? COLORS.accentWarning : COLORS.textDim}>
+                {'🖼️ '}
+              </Text>
+              <Text
+                color={isSelected ? COLORS.accentSecondary : COLORS.textSoft}
+                bold={isSelected}
+              >
+                {imagePath}
+              </Text>
             </Box>
           );
         }

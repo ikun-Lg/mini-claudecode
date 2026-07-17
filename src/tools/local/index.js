@@ -14,6 +14,8 @@ import todo_write from './todo_write.js';
 import write_file from './write_file.js';
 import memory_save from './memory_save.js';
 import memory_get from './memory_get.js';
+import debugger_page from './debugger_page.js';
+import diff_pic from './diff_pic.js';
 
 
 export default function getLocalTool() {
@@ -32,6 +34,8 @@ export default function getLocalTool() {
     localClient.registerTool(write_file);
     localClient.registerTool(memory_save);
     localClient.registerTool(memory_get);
+    localClient.registerTool(debugger_page);
+    localClient.registerTool(diff_pic);
 
 
     const localTools = localClient.listTools();
