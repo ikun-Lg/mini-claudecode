@@ -1,17 +1,34 @@
 {
   "name": "mini-claudecode",
   "version": "1.0.0",
-  "description": "一个最小化的 Claude Code CLI 实现",
+  "description": "一个最小化的 Claude Code CLI 实现 —— 运行在终端中的 AI 编程助手",
   "main": "src/app.js",
   "scripts": {
     "start": "tsx src/app.js",
-    "dev": "tsx src/app.js"
+    "dev": "tsx src/app.js",
+    "postinstall": "node scripts/postinstall.js"
   },
   "bin": {
     "minicode": "./bin/minicode.js"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    "templates/",
+    "models/",
+    "README.md"
+  ],
   "type": "module",
-  "keywords": [],
+  "keywords": [
+    "cli",
+    "ai",
+    "coding-assistant",
+    "claude-code",
+    "terminal",
+    "openai",
+    "chatbot"
+  ],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.30.0",
@@ -30,9 +47,7 @@
     "minimatch": "^10.2.5",
     "openai": "^6.45.0",
     "playwright": "^1.61.1",
-    "react": "^19.2.7"
-  },
-  "devDependencies": {
+    "react": "^19.2.7",
     "tsx": "^4.23.0"
   }
 }

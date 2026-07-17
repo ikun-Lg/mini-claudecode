@@ -1,0 +1,6 @@
+{
+  "apiKey": "",
+  "baseURL": "https://api.openai.com/v1",
+  "model": "gpt-4o-mini",
+  "mcpServers": {}
+}
