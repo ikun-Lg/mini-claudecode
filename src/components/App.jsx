@@ -9,7 +9,13 @@ import SuggestionList from './SuggestionList.jsx';
 import ConfirmInput from './ConfirmInput.jsx';
 import SelectInput from './SelectInput.jsx';
 import { COLORS, GLYPHS } from './theme.js';
-import { getAIResponse, DEFAULT_MODEL, RULES_MAP } from '../request/llm.js';
+import {
+  getAIResponse,
+  DEFAULT_MODEL,
+  RULES_MAP,
+  abortCurrentRequest,
+  getTokenUsage,
+} from '../request/llm.js';
 import { cacheMessages, loadHistory } from '../utils/fsHandle.js';
 import { matchRules } from '../utils/contextRead.js';
 import {
@@ -263,6 +269,21 @@ export default function App() {
       }
     },
     { isActive: !isThinking && !interaction && suggestionMode !== null },
+  );
+
+  // #3 流式生成中断：思考中或工具执行时，Esc / Ctrl+C 中断当前 LLM 请求
+  useInput(
+    (_char, key) => {
+      if (key.escape || (key.ctrl && _char === 'c')) {
+        const aborted = abortCurrentRequest();
+        if (aborted) {
+          setIsThinking(false);
+          setIsToolRunning(false);
+          setCurrentToolName('');
+        }
+      }
+    },
+    { isActive: isThinking || isToolRunning },
   );
 
   // ── 处理提交 ──

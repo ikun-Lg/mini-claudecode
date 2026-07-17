@@ -1,5 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import {
+  checkWorkDirBoundary,
+  createBackup,
+  cleanupBackup,
+  rollbackFromBackup,
+} from './securityUtils.js';
 
 export default {
     define: {
@@ -40,7 +46,12 @@ export default {
         }
     },
     handle({ file_path, edits }) {
-        const resolvedPath = path.resolve(file_path);
+        // #6 工作目录安全限制
+        const boundary = checkWorkDirBoundary(file_path);
+        if (!boundary.safe) {
+            return boundary.message;
+        }
+        const resolvedPath = boundary.resolvedPath;
 
         if (!fs.existsSync(resolvedPath)) {
             return `文件不存在: ${resolvedPath}`;
@@ -102,7 +113,15 @@ export default {
             }
 
             // 所有编辑验证通过，写入文件
-            fs.writeFileSync(resolvedPath, workingContent, 'utf-8');
+            // #9 写入前备份，失败时回滚
+            const backupPath = createBackup(resolvedPath);
+            try {
+                fs.writeFileSync(resolvedPath, workingContent, 'utf-8');
+                cleanupBackup(backupPath);
+            } catch (writeErr) {
+                rollbackFromBackup(resolvedPath, backupPath);
+                return `文件批量编辑失败，已回滚: ${writeErr.message}`;
+            }
 
             return `文件批量编辑成功: ${resolvedPath}\n${results.join('\n')}`;
         } catch (err) {

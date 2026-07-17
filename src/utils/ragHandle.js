@@ -248,8 +248,8 @@ export async function getAllRagFile() {
 export async function filesToEmbedding(fileArr) {
   if (!Array.isArray(fileArr) || fileArr.length === 0) return [];
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 40,
-    chunkOverlap: 20,
+    chunkSize: 500,
+    chunkOverlap: 100,
   });
   // 并行切割所有文档内容
   //会得到一个二维数组，

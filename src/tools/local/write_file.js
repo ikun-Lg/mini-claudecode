@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { checkWorkDirBoundary } from './securityUtils.js';
 
 export default {
     define: {
@@ -21,7 +22,12 @@ export default {
         }
     },
     handle({ file_path, content }) {
-        const resolvedPath = path.resolve(file_path);
+        // #6 工作目录安全限制
+        const boundary = checkWorkDirBoundary(file_path);
+        if (!boundary.safe) {
+            return boundary.message;
+        }
+        const resolvedPath = boundary.resolvedPath;
 
         try {
             const dir = path.dirname(resolvedPath);

@@ -2,6 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getCurrentWorkingDir } from './pathUtils.js';
+import { isIgnoredByGitignore } from '../tools/local/gitignoreUtils.js';
 
 // 忽略的目录名
 const IGNORE_DIRS = new Set([
@@ -96,6 +97,8 @@ function scanDir(dir, basePath = '', results = []) {
     return results;
   }
 
+  const cwd = getCurrentWorkingDir();
+
   for (const entry of entries) {
     if (results.length >= MAX_FILES) break;
 
@@ -113,6 +116,8 @@ function scanDir(dir, basePath = '', results = []) {
       if (IGNORE_EXTENSIONS.has(ext)) continue;
       // 跳过点文件（如 .DS_Store, .eslintrc 等隐藏文件）
       if (entry.name.startsWith('.')) continue;
+      // #7 .gitignore 集成：跳过 gitignore 忽略的文件
+      if (isIgnoredByGitignore(relativePath, cwd)) continue;
       results.push(relativePath);
     }
   }

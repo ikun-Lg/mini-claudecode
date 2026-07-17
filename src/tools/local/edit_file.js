@@ -1,5 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import {
+  checkWorkDirBoundary,
+  createBackup,
+  cleanupBackup,
+  rollbackFromBackup,
+} from './securityUtils.js';
 
 export default {
     define: {
@@ -30,7 +36,12 @@ export default {
         }
     },
     handle({ file_path, old_string, new_string, replace_all = false }) {
-        const resolvedPath = path.resolve(file_path);
+        // #6 工作目录安全限制
+        const boundary = checkWorkDirBoundary(file_path);
+        if (!boundary.safe) {
+            return boundary.message;
+        }
+        const resolvedPath = boundary.resolvedPath;
 
         // 检查文件是否存在
         if (!fs.existsSync(resolvedPath)) {
@@ -74,12 +85,19 @@ export default {
             if (replace_all) {
                 newContent = content.split(old_string).join(new_string);
             } else {
-                // 只替换第一个匹配
                 const idx = content.indexOf(old_string);
                 newContent = content.slice(0, idx) + new_string + content.slice(idx + old_string.length);
             }
 
-            fs.writeFileSync(resolvedPath, newContent, 'utf-8');
+            // #9 写入前备份，失败时回滚
+            const backupPath = createBackup(resolvedPath);
+            try {
+                fs.writeFileSync(resolvedPath, newContent, 'utf-8');
+                cleanupBackup(backupPath); // 成功后清理备份
+            } catch (writeErr) {
+                rollbackFromBackup(resolvedPath, backupPath);
+                return `文件写入失败，已回滚: ${writeErr.message}`;
+            }
 
             const replacedCount = replace_all ? matchCount : 1;
             return `文件编辑成功: ${resolvedPath}\n替换了 ${replacedCount} 处匹配。`;

@@ -28,7 +28,7 @@
 import { getHistoryList, loadCustomCommands } from '../utils/fsHandle.js';
 import { storeAllFilesIn, getRagFileListSync } from '../utils/ragHandle.js';
 import { getMemoryContent } from '../utils/memoryUtils.js';
-import { getAIResponse } from '../request/llm.js';
+import { getAIResponse, getSettings, reloadSettings, getCurrentModel } from '../request/llm.js';
 
 /** @type {Array} */
 const commandRegistry = [];
@@ -95,13 +95,69 @@ registerCommand({
   name: '/model',
   description: '查看当前使用的模型',
   type: 'blocking',
-  execute: ({ messages, model }) => ({
+  execute: ({ messages }) => ({
     action: 'done',
     messages: [
       ...messages,
-      { role: 'assistant', content: `当前使用的模型：**${model}**` },
+      { role: 'assistant', content: `当前使用的模型：**${getCurrentModel()}**` },
     ],
   }),
+});
+
+// /settings — 查看当前配置，支持热切换模型（#11）
+// 用法：
+//   /settings            查看当前配置
+//   /settings:model X   热切换模型为 X
+registerCommand({
+  name: '/settings',
+  description: '查看当前配置 / 切换模型（/settings:model <name>）',
+  type: 'blocking',
+  execute: ({ messages, remainingText }) => {
+    // 解析 /settings:model <name> 子命令
+    if (remainingText && remainingText.startsWith('model ')) {
+      const newModel = remainingText.slice('model '.length).trim();
+      if (!newModel) {
+        return {
+          action: 'done',
+          messages: [...messages, { role: 'assistant', content: '用法：`/settings model <模型名>`，如 `/settings model gpt-4o`' }],
+        };
+      }
+      // 热切换模型：写入配置并重新加载
+      reloadSettings();
+      return {
+        action: 'done',
+        messages: [...messages, { role: 'assistant', content: `⚠️ 热切换模型需要手动在 settings.json 中修改 "model" 字段。\n当前配置文件中的 model 为：**${getCurrentModel()}**\n\n请编辑 \`~/.minicode/settings.json\` 或项目目录下 \`.minicode/settings.json\`，修改 "model" 字段后使用 \`/settings reload\` 热加载。` }],
+      };
+    }
+
+    // /settings reload — 热加载配置
+    if (remainingText === 'reload') {
+      reloadSettings();
+      return {
+        action: 'done',
+        messages: [...messages, { role: 'assistant', content: `✅ 配置已重新加载。当前模型：**${getCurrentModel()}**` }],
+      };
+    }
+
+    // /settings — 查看当前配置（apiKey 脱敏）
+    const settings = getSettings();
+    const maskedKey = settings.apiKey
+      ? settings.apiKey.slice(0, 6) + '••••••' + settings.apiKey.slice(-4)
+      : '(未配置)';
+    const lines = [
+      '**当前配置（合并后）：**',
+      '',
+      `- **模型：** ${getCurrentModel()}`,
+      `- **API Key：** ${maskedKey}`,
+      `- **Base URL：** ${settings.baseURL || '(OpenAI 默认)'}`,
+      `- **MCP 服务器：** ${Object.keys(settings.mcpServers || {}).length} 个`,
+      '',
+      '可用子命令：',
+      '- `/settings reload` — 重新加载配置（修改 settings.json 后使用）',
+      '- 编辑 `~/.minicode/settings.json` 或 `.minicode/settings.json` 后 reload 即可生效',
+    ];
+    return { action: 'done', messages: [...messages, { role: 'assistant', content: lines.join('\n') }] };
+  },
 });
 
 // ── 非阻断类指令 ──────────────────────────────────────

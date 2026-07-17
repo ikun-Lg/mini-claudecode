@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { isIgnoredByGitignore } from './gitignoreUtils.js';
 
 /**
  * 默认忽略的目录
@@ -53,15 +54,20 @@ export function* walkDir(dir, options = {}) {
     const ignoreSet = options.ignoreDirs
         ? new Set([...IGNORE_DIRS, ...options.ignoreDirs])
         : IGNORE_DIRS;
+    const root = options._root || dir;
 
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
         if (entry.isDirectory()) {
             if (!ignoreSet.has(entry.name) && !entry.name.startsWith('.')) {
-                yield* walkDir(path.join(dir, entry.name), { ignoreDirs: ignoreSet });
+                yield* walkDir(path.join(dir, entry.name), { ignoreDirs: ignoreSet, _root: root });
             }
         } else if (entry.isFile()) {
-            yield path.join(dir, entry.name);
+            // #7 .gitignore 集成：跳过 gitignore 忽略的文件
+            const fullPath = path.join(dir, entry.name);
+            const relativePath = path.relative(root, fullPath);
+            if (isIgnoredByGitignore(relativePath, root)) continue;
+            yield fullPath;
         }
     }
 }

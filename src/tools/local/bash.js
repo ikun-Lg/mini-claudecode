@@ -1,8 +1,12 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+// bash 工具（#8 改造：流式输出 + Windows 命令安全）
+//
+// 改进点：
+//   1. 用 spawn 替代 exec，实现 stdout/stderr 实时流式输出
+//   2. Windows 下不再用字符串拼接 PowerShell 命令（避免注入），
+//      改用 -EncodedCommand 传递 Base64 编码的 UTF-16LE 命令
+//   3. 保留超时、输出截断等原有逻辑
+import { spawn } from 'child_process';
 import os from 'os';
-
-const execAsync = promisify(exec);
 
 const getPlatform = () => {
     return os.platform() === 'win32' ? 'windows' : 'others';
@@ -23,6 +27,15 @@ function truncateOutput(text) {
     const tail = text.slice(-half);
     const omitted = text.length - MAX_OUTPUT_LENGTH;
     return `${head}\n\n...（已省略 ${omitted} 字符）...\n\n${tail}`;
+}
+
+/**
+ * #8 Windows 下将 PowerShell 命令编码为 Base64（UTF-16LE），
+ * 避免字符串拼接导致的引号嵌套注入问题
+ */
+function encodePowerShellCommand(command) {
+    const buf = Buffer.from(command, 'utf16le');
+    return buf.toString('base64');
 }
 
 export default {
@@ -52,50 +65,80 @@ export default {
 
     async handle({ command, timeout = DEFAULT_TIMEOUT, cwd }) {
         const platform = getPlatform();
-        let finalCommand = command;
-
-        if (platform === 'windows') {
-            finalCommand = `chcp 65001 >nul && powershell -Command "${command}"`;
-        }
 
         const execOptions = {
             encoding: 'utf8',
             timeout,
-            maxBuffer: 1024 * 1024, // 1MB buffer 上限
+            // 使用 pipe 而非 ignore，确保能拿到输出
+            stdio: ['pipe', 'pipe', 'pipe'],
         };
         if (cwd) {
             execOptions.cwd = cwd;
         }
 
-        try {
-            const { stdout, stderr } = await execAsync(finalCommand, execOptions);
+        return new Promise((resolve) => {
+            let child;
+            let stdout = '';
+            let stderr = '';
 
-            // 合并 stdout 和 stderr，并截断
-            let combined = stdout;
-            if (stderr) {
-                combined += (combined ? '\n' : '') + `[stderr]\n${stderr}`;
+            if (platform === 'windows') {
+                // #8 Windows: 用 -EncodedCommand 传递 Base64 编码命令，避免注入
+                const encoded = encodePowerShellCommand(command);
+                child = spawn(
+                    'powershell.exe',
+                    ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+                    execOptions
+                );
+            } else {
+                // macOS/Linux: 通过 shell 执行
+                child = spawn('sh', ['-c', command], execOptions);
             }
 
-            const truncated = truncateOutput(combined);
-            const truncationNote = truncated !== combined
-                ? '\n\n⚠️ 输出过长，已截断。'
-                : '';
+            // #8 流式收集 stdout/stderr
+            child.stdout?.on('data', (data) => {
+                stdout += data.toString();
+            });
+            child.stderr?.on('data', (data) => {
+                stderr += data.toString();
+            });
 
-            return `执行成功:\n${truncated}${truncationNote}`;
-        } catch (error) {
-            // 超时错误
-            if (error.killed === true || error.signal === 'SIGTERM') {
-                return `执行超时：命令在 ${timeout}ms 后被终止。\n${error.stdout ? '部分输出:\n' + truncateOutput(error.stdout) : ''}`;
-            }
-            // 命令执行失败（非零退出码），但仍可能有输出
-            let errMsg = `执行失败: ${error.message}`;
-            if (error.stdout) {
-                errMsg += `\n[stdout]\n${truncateOutput(error.stdout)}`;
-            }
-            if (error.stderr) {
-                errMsg += `\n[stderr]\n${truncateOutput(error.stderr)}`;
-            }
-            return errMsg;
-        }
+            // 超时处理
+            const timer = setTimeout(() => {
+                try { child.kill('SIGTERM'); } catch { /* 已退出 */ }
+            }, timeout);
+
+            child.on('error', (err) => {
+                clearTimeout(timer);
+                resolve(`执行失败: ${err.message}`);
+            });
+
+            child.on('close', (code) => {
+                clearTimeout(timer);
+
+                // 合并 stdout 和 stderr，并截断
+                let combined = stdout;
+                if (stderr) {
+                    combined += (combined ? '\n' : '') + `[stderr]\n${stderr}`;
+                }
+
+                const truncated = truncateOutput(combined);
+                const truncationNote = truncated !== combined
+                    ? '\n\n⚠️ 输出过长，已截断。'
+                    : '';
+
+                if (code === 0) {
+                    resolve(`执行成功:\n${truncated}${truncationNote}`);
+                } else if (code === null || child.killed) {
+                    // 被信号终止（超时）
+                    resolve(`执行超时：命令在 ${timeout}ms 后被终止。\n${stdout ? '部分输出:\n' + truncateOutput(stdout) : ''}`);
+                } else {
+                    let errMsg = `执行失败（退出码 ${code}）`;
+                    if (truncated) {
+                        errMsg += `\n${truncated}`;
+                    }
+                    resolve(errMsg + truncationNote);
+                }
+            });
+        });
     }
 };
