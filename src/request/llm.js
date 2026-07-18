@@ -13,6 +13,7 @@ import {
 import { excuteTool, getTools } from "../tools/index.js";
 import { transformToOpenAi } from "../tools/util.js";
 import { searchLocalVector } from "../utils/ragHandle.js";
+import { applySlidingWindow, truncateToolResult } from "../utils/contextManager.js";
 
 const SETTINGS_FILENAME = ".minicode/settings.json";
 
@@ -123,21 +124,33 @@ export function validateConfig() {
 }
 
 // ── token 用量统计（#5）────────────────────────────────
-let tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requestCount: 0 };
+let tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requestCount: 0, cachedTokens: 0 };
 
 /**
  * 获取累计的 token 用量
- * @returns {{promptTokens: number, completionTokens: number, totalTokens: number, requestCount: number}}
  */
 export function getTokenUsage() {
   return { ...tokenUsage };
 }
 
 /**
+ * 获取缓存命中率（prompt cache hit rate）
+ * @returns {{hitRate: number, cachedTokens: number, promptTokens: number}}
+ */
+export function getCacheHitRate() {
+  if (tokenUsage.promptTokens === 0) return { hitRate: 0, cachedTokens: 0, promptTokens: 0 };
+  return {
+    hitRate: tokenUsage.cachedTokens / tokenUsage.promptTokens,
+    cachedTokens: tokenUsage.cachedTokens,
+    promptTokens: tokenUsage.promptTokens,
+  };
+}
+
+/**
  * 重置 token 用量统计
  */
 export function resetTokenUsage() {
-  tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requestCount: 0 };
+  tokenUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requestCount: 0, cachedTokens: 0 };
 }
 
 // ── 流式生成中断（#3）──────────────────────────────────
@@ -187,21 +200,27 @@ export function createClient() {
  * 构建发送给大模型的消息列表
  */
 function buildApiMessages(messages, ragContext = "") {
-  return [
+  // #4 滑动窗口：防止长对话超出模型 context window
+  const { messages: windowedMessages, truncated, removedCount } = applySlidingWindow(messages);
+
+  const result = [
     { role: "system", content: SYSTEM_PROMPT },
     ...(USER_CONTEXT ? [{ role: "user", content: USER_CONTEXT }] : []),
     ...(SKILL_HEADERS ? [{ role: "user", content: SKILL_HEADERS }] : []),
     ...(ragContext ? [{ role: "user", content: ragContext }] : []),
-    ...messages.map((msg) => {
-      if (msg.role === "tool") {
-        return { role: "tool", content: msg.content, tool_call_id: msg.tool_call_id };
-      }
-      if (msg.role === "assistant" && msg.tool_calls) {
-        return { role: "assistant", content: msg.content || "", tool_calls: msg.tool_calls };
-      }
-      return { role: msg.role, content: msg.content };
-    }),
   ];
+
+  for (const msg of windowedMessages) {
+    if (msg.role === "tool") {
+      result.push({ role: "tool", content: msg.content, tool_call_id: msg.tool_call_id });
+    } else if (msg.role === "assistant" && msg.tool_calls) {
+      result.push({ role: "assistant", content: msg.content || "", tool_calls: msg.tool_calls });
+    } else {
+      result.push({ role: msg.role, content: msg.content });
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -279,6 +298,9 @@ export async function* getAIResponse(messages, options = {}) {
         tokenUsage.completionTokens += chunk.usage.completion_tokens || 0;
         tokenUsage.totalTokens += chunk.usage.total_tokens || 0;
         tokenUsage.requestCount += 1;
+        // 缓存命中统计：prompt_tokens_details.cached_tokens
+        const cached = chunk.usage.prompt_tokens_details?.cached_tokens || 0;
+        tokenUsage.cachedTokens += cached;
       }
 
       const delta = chunk.choices[0]?.delta;
@@ -315,7 +337,9 @@ export async function* getAIResponse(messages, options = {}) {
 
         yield { type: "tool_start", name: functionName, args: functionArgs };
         const excuteResult = await excuteTool(functionName, functionArgs);
-        messages.push({ tool_call_id: toolCall.id, role: "tool", content: excuteResult });
+        // #4 工具结果压缩：超长结果截断，避免吃满上下文
+        const compressedResult = truncateToolResult(excuteResult);
+        messages.push({ tool_call_id: toolCall.id, role: "tool", content: compressedResult });
         yield { type: "tool_end", name: functionName, result: excuteResult };
       }
 
